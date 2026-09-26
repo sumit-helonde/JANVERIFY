@@ -75,9 +75,8 @@ describe('CommentsDrawer', () => {
     expect(screen.getByText('Great platform. Work done by the authority within 4 hours after posting.')).toBeInTheDocument()
   })
 
-  it('keeps the follow-up badges on the garbage and road damage threads', () => {
+  it('keeps the follow-up badge on the road damage thread', () => {
     for (const [issueRef, title, location, followUp] of [
-      ['CW-0305', 'Garbage', 'Local Market Road, Nagpur', 'Target time has passed, but action is not completed yet.'],
       ['CW-0312', 'Road Damage', 'Ward 12, Nagpur', 'I’ll verify the location again after the repair is marked complete.'],
     ] as const) {
       const view = render(

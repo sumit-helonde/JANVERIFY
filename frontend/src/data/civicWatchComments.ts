@@ -46,38 +46,6 @@ export const CIVIC_COMMENT_THREADS: Readonly<Record<string, readonly CivicCommen
       badge: 'CITIZEN VERIFIED',
     },
   ],
-  'CW-0305': [
-    {
-      id: 'CW-0305-c1',
-      author: 'Suresh Nikam',
-      authorKind: 'CITIZEN',
-      time: '28h ago',
-      text: 'Waste is spread across the road after yesterday’s market closing. The smell is unbearable for the shop owners.',
-    },
-    {
-      id: 'CW-0305-c2',
-      author: 'Kavita Rane',
-      authorKind: 'CITIZEN',
-      time: '26h ago',
-      text: 'Adding a photo from this morning. Nothing has been cleared, and vehicles are pushing the waste towards the drain.',
-    },
-    {
-      id: 'CW-0305-c3',
-      author: 'NMC Sanitation Cell',
-      authorKind: 'AUTHORITY',
-      time: '20h ago',
-      text: 'A collection vehicle is scheduled for the next night shift. The market clearing point is also being reviewed with the ward office.',
-      badge: 'AUTHORITY RESPONSE',
-    },
-    {
-      id: 'CW-0305-c4',
-      author: 'Imran Qureshi',
-      authorKind: 'CITIZEN',
-      time: '12h ago',
-      text: 'Target time has passed, but action is not completed yet.',
-      badge: 'FOLLOW-UP',
-    },
-  ],
   'CW-0312': [
     {
       id: 'CW-0312-c1',
@@ -114,7 +82,6 @@ export const CIVIC_COMMENT_THREADS: Readonly<Record<string, readonly CivicCommen
 
 const CATEGORY_THREAD_FALLBACK: Partial<Record<CivicCategoryKey, string>> = {
   manholes: 'CW-0258',
-  garbage: 'CW-0305',
 }
 
 const SEEDED_ISSUE_REFS = new Set<string>([
