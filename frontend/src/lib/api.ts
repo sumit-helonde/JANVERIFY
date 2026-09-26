@@ -20,9 +20,38 @@ async function getJSON<T>(path: string): Promise<T> {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   })
   if (!res.ok) {
-    throw new Error(`Request failed with status ${res.status}`)
+    // A 404/proxy error can come back with an empty body, so parse defensively
+    // and always name the failing request instead of crashing on res.json().
+    const detail = await readErrorDetail(res)
+    throw new Error(
+      `GET ${path} failed (${res.status}${detail ? `: ${detail}` : ''})`,
+    )
   }
-  return (await res.json()) as T
+  const text = await res.text()
+  if (!text) {
+    throw new Error(`GET ${path} returned an empty response (${res.status})`)
+  }
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(`GET ${path} returned a non-JSON response (${res.status})`)
+  }
+}
+
+async function readErrorDetail(res: Response): Promise<string> {
+  try {
+    const text = await res.text()
+    if (!text) return ''
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown }
+      if (typeof parsed.detail === 'string') return parsed.detail
+    } catch {
+      return text.slice(0, 120)
+    }
+  } catch {
+    /* ignore */
+  }
+  return ''
 }
 
 export function tokenFromStorage(): string | null {
@@ -47,7 +76,21 @@ export async function login(email: string, password: string): Promise<AuthUser> 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   })
-  const body = (await res.json()) as { token?: string; user?: AuthUser; detail?: string }
+  const text = await res.text()
+  let body: { token?: string; user?: AuthUser; detail?: string } = {}
+  if (text) {
+    try {
+      body = JSON.parse(text)
+    } catch {
+      throw new Error(
+        `Login returned a non-JSON response (${res.status}). The API may be unreachable.`,
+      )
+    }
+  } else {
+    throw new Error(
+      `Login returned an empty response (${res.status}). The API may be unreachable.`,
+    )
+  }
   if (!res.ok || !body.token || !body.user) {
     throw new Error(body.detail ?? `Login failed with status ${res.status}`)
   }
