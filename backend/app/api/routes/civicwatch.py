@@ -167,10 +167,16 @@ def _store_citizen_photo(upload) -> tuple[str, str, int]:
         )
         return result.url, digest, len(data)
 
-    CIVIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    dest = CIVIC_UPLOAD_DIR / filename
-    if not dest.exists():
-        dest.write_bytes(data)
+    try:
+        CIVIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        dest = CIVIC_UPLOAD_DIR / filename
+        if not dest.exists():
+            dest.write_bytes(data)
+    except OSError as exc:  # read-only filesystem (e.g. Vercel without Blob)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Photo storage is not available on this deployment ({exc}).",
+        ) from exc
     return f"{CIVIC_UPLOAD_URL_PREFIX}/{filename}", digest, len(data)
 
 

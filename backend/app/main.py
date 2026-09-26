@@ -65,12 +65,18 @@ register_exception_handlers(app)
 # Citizen-submitted CivicWatch photos (written by the report-issue endpoint).
 # On Vercel the filesystem is read-only/ephemeral, so photos go to Vercel Blob
 # and the static mounts are skipped.
+uploads_ready = False
 if not os.environ.get("BLOB_READ_WRITE_TOKEN", "").strip():
     UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
-    # Same directory under the API prefix so the dev proxy serves photos unchanged.
-    app.mount("/api/uploads", StaticFiles(directory=UPLOADS_DIR), name="api_uploads")
+    try:
+        UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        uploads_ready = True
+    except OSError as exc:  # read-only filesystem (e.g. Vercel without Blob)
+        logger.warning("uploads directory unavailable (%s); photo uploads require BLOB_READ_WRITE_TOKEN", exc)
+    if uploads_ready:
+        app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+        # Same directory under the API prefix so the dev proxy serves photos unchanged.
+        app.mount("/api/uploads", StaticFiles(directory=UPLOADS_DIR), name="api_uploads")
 
 # Serve the built React app from the same origin when frontend/dist exists, so a
 # single server can host the whole product (API + UI) without a second process.
