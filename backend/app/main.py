@@ -84,8 +84,8 @@ if not os.environ.get("BLOB_READ_WRITE_TOKEN", "").strip():
 # a single server hosts the whole product (API + UI). On Vercel the build copies
 # the output into api/static so it ships inside the function bundle.
 _FRONTEND_DIST_CANDIDATES = (
-    Path(__file__).resolve().parents[2] / "api" / "static",   # Vercel function bundle
-    Path(__file__).resolve().parents[2] / "frontend" / "dist",  # local build
+    Path(__file__).resolve().parent / "static",          # bundled copy (Vercel + local build)
+    Path(__file__).resolve().parents[2] / "frontend" / "dist",  # raw local build
 )
 FRONTEND_DIST = next((p for p in _FRONTEND_DIST_CANDIDATES if p.is_dir()), None)
 if FRONTEND_DIST is not None:
