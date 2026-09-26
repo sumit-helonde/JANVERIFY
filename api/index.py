@@ -45,7 +45,29 @@ os.environ.setdefault("ENVIRONMENT", "production")
 
 from starlette.types import ASGIApp, Receive, Scope, Send  # noqa: E402
 
-from app.main import app  # noqa: E402
+try:
+    from app.main import app  # noqa: E402
+except Exception:  # pragma: no cover - surfaced as a readable 500 on Vercel
+    import traceback
+
+    _import_error = traceback.format_exc()
+
+    class _ImportErrorApp:
+        """Reports why the API could not start instead of failing silently."""
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            body = f"IMPORT FAILED\n\n{_import_error}".encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 500,
+                    "headers": [(b"content-type", b"text/plain; charset=utf-8")],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+
+    app = _ImportErrorApp()
+
 
 _ORIGINAL_PATH_HEADERS = (
     b"x-vercel-original-path",
