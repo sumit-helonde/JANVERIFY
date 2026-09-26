@@ -1,0 +1,17 @@
+{
+  "name": "janverify",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JANVERIFY — Your Tax. Your Evidence. Your Right to Know.",
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "uvicorn app.main:app --reload --app-dir backend --port 8000",
+    "test:backend": "cd backend && .venv\\Scripts\\python -m pytest",
+    "test:frontend": "npm --prefix frontend run test",
+    "test:e2e": "playwright test",
+    "test": "npm run test:backend && npm run test:frontend && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

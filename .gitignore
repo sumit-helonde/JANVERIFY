@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+
+# Environment (never commit real secrets)
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Build output
+dist/
+build/
+coverage/
+
+# Test artifacts
+playwright-report/
+test-results/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-error.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local PostgreSQL data (if a local cluster is used inside the repo)
+database/.pgdata/
+
+# Uploads / local file storage
+uploads/
+storage/

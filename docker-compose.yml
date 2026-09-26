@@ -1,0 +1,25 @@
+# JANVERIFY — PostgreSQL + PostGIS
+version: "3.9"
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: janverify-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-janverify}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-janverify_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-janverify}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-janverify} -d ${POSTGRES_DB:-janverify}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  pgdata:
