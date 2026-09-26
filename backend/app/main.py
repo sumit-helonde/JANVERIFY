@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import health
@@ -61,8 +63,33 @@ app.include_router(civicwatch_router)
 register_exception_handlers(app)
 
 # Citizen-submitted CivicWatch photos (written by the report-issue endpoint).
-UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
-# Same directory under the API prefix so the dev proxy serves photos unchanged.
-app.mount("/api/uploads", StaticFiles(directory=UPLOADS_DIR), name="api_uploads")
+# On Vercel the filesystem is read-only/ephemeral, so photos go to Vercel Blob
+# and the static mounts are skipped.
+if not os.environ.get("BLOB_READ_WRITE_TOKEN", "").strip():
+    UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads"
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+    # Same directory under the API prefix so the dev proxy serves photos unchanged.
+    app.mount("/api/uploads", StaticFiles(directory=UPLOADS_DIR), name="api_uploads")
+
+# Serve the built React app from the same origin when frontend/dist exists, so a
+# single server can host the whole product (API + UI) without a second process.
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if FRONTEND_DIST.is_dir():
+    assets_dir = FRONTEND_DIST / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api/") or full_path == "api":
+            raise HTTPException(status_code=404, detail="Not Found")
+        if full_path:
+            candidate = (FRONTEND_DIST / full_path).resolve()
+            try:
+                candidate.relative_to(FRONTEND_DIST.resolve())
+            except ValueError:
+                raise HTTPException(status_code=404, detail="Not Found")
+            if candidate.is_file():
+                return FileResponse(candidate)
+        return FileResponse(FRONTEND_DIST / "index.html")

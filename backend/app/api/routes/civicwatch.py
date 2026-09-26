@@ -18,6 +18,7 @@ response target (sla_exceeded) is a UX state, never a legal claim.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -113,6 +114,9 @@ CIVIC_UPLOAD_DIR = Path(__file__).resolve().parents[3] / "uploads" / "civicwatch
 CIVIC_UPLOAD_URL_PREFIX = "/api/uploads/civicwatch"
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+# Set on Vercel so photos go to durable object storage instead of the
+# read-only, ephemeral serverless filesystem.
+BLOB_READ_WRITE_TOKEN = os.environ.get("BLOB_READ_WRITE_TOKEN", "").strip()
 
 
 def _resolve_category(raw: str | None) -> tuple[str, str]:
@@ -128,7 +132,11 @@ def _resolve_category(raw: str | None) -> tuple[str, str]:
 
 
 def _store_citizen_photo(upload) -> tuple[str, str, int]:
-    """Persist an uploaded citizen photo under a generated, sanitized name."""
+    """Persist an uploaded citizen photo under a generated, sanitized name.
+
+    Uses Vercel Blob when BLOB_READ_WRITE_TOKEN is set (serverless has no
+    persistent disk), otherwise the local uploads directory.
+    """
     content_type = (upload.content_type or "").split(";")[0].strip().lower()
     if content_type not in ALLOWED_IMAGE_TYPES:
         raise HTTPException(
@@ -145,6 +153,20 @@ def _store_citizen_photo(upload) -> tuple[str, str, int]:
         )
     digest = sha256(data).hexdigest()
     filename = f"{digest}{ALLOWED_IMAGE_TYPES[content_type]}"
+
+    if BLOB_READ_WRITE_TOKEN:
+        from vercel_blob import put as blob_put
+
+        result = blob_put(
+            f"civicwatch/{filename}",
+            data,
+            access="public",
+            content_type=content_type,
+            add_random_suffix=False,
+            token=BLOB_READ_WRITE_TOKEN,
+        )
+        return result.url, digest, len(data)
+
     CIVIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dest = CIVIC_UPLOAD_DIR / filename
     if not dest.exists():
