@@ -3,7 +3,7 @@
   "buildCommand": "npm --prefix frontend ci && npm run build",
   "outputDirectory": "frontend/dist",
   "builds": [
-    { "src": "api/index.py", "use": "@vercel/python", "includeFiles": "backend/app/**" }
+    { "src": "api/index.py", "use": "@vercel/python" }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/index.py" },
