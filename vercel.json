@@ -5,8 +5,8 @@
   "installCommand": "pip install -r backend/requirements.txt && npm --prefix frontend ci",
   "functions": {
     "api/index.py": {
-      "runtime": "@vercel/python@3.12",
-      "includeFiles": ["backend/app/**/*.py", "backend/requirements.txt"],
+      "runtime": "@vercel/python@16.0.0",
+      "includeFiles": "backend/app/**/*.py",
       "maxDuration": 30
     }
   },
