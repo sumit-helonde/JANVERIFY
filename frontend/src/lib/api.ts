@@ -7,7 +7,9 @@ import {
   type CivicIssue,
 } from '../data/civicWatchData'
 
-const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? '/api'
+// `||` (not `??`) so an empty VITE_API_BASE_URL falls back to the same-origin
+// /api prefix instead of requesting the SPA route and receiving HTML.
+const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || '/api'
 
 export interface HealthResponse {
   status: string
