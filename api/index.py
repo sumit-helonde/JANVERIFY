@@ -1,8 +1,8 @@
 """Vercel serverless entrypoint for the JANVERIFY FastAPI backend.
 
-Vercel rewrites every /api/* request to this function, so the original path has to
-be restored before FastAPI routes it. The original URL is read from the headers
-Vercel/proxies set, falling back to the ASGI scope path.
+Vercel rewrites every /api/* request to this function, so the original path is
+restored before FastAPI routes it. The app is exported as a real FastAPI
+instance so the Vercel Python runtime can detect the framework.
 """
 
 from __future__ import annotations
@@ -18,7 +18,9 @@ if str(BACKEND) not in sys.path:
 
 os.environ.setdefault("ENVIRONMENT", "production")
 
-from app.main import app as fastapi_app  # noqa: E402
+from starlette.types import ASGIApp, Receive, Scope, Send  # noqa: E402
+
+from app.main import app  # noqa: E402
 
 _ORIGINAL_PATH_HEADERS = (
     b"x-vercel-original-path",
@@ -27,15 +29,30 @@ _ORIGINAL_PATH_HEADERS = (
     b"x-forwarded-uri",
     b"x-rewrite-url",
 )
+_REWRITE_TARGETS = ("/api/index", "/api/index.py", "/api")
 
 
-def _original_path(scope: dict) -> str | None:
+class OriginalPathMiddleware:
+    """Restores the pre-rewrite request path so FastAPI route matching works."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") == "http" and scope.get("path") in _REWRITE_TARGETS:
+            original = _original_path(scope)
+            if original:
+                scope = dict(scope)
+                scope["path"] = original
+                raw = scope.get("raw_path")
+                scope["raw_path"] = original.encode() if isinstance(raw, bytes) else raw
+        await self.app(scope, receive, send)
+
+
+def _original_path(scope: Scope) -> str | None:
+    headers = scope.get("headers") or []
     for name in _ORIGINAL_PATH_HEADERS:
-        value = None
-        for key, header_value in scope.get("headers", []):
-            if key.lower() == name:
-                value = header_value
-                break
+        value = next((v for k, v in headers if k.lower() == name), None)
         if not value:
             continue
         text = value.decode("latin-1")
@@ -46,22 +63,4 @@ def _original_path(scope: dict) -> str | None:
     return None
 
 
-class OriginalPathMiddleware:
-    """Restores the pre-rewrite request path so FastAPI route matching works."""
-
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope.get("type") == "http":
-            original = _original_path(scope)
-            if original and scope.get("path") in ("/api/index", "/api/index.py", "/api"):
-                scope = dict(scope)
-                scope["path"] = original
-                raw = scope.get("raw_path")
-                if raw:
-                    scope["raw_path"] = original.encode()
-        await self.app(scope, receive, send)
-
-
-app = OriginalPathMiddleware(fastapi_app)
+app.add_middleware(OriginalPathMiddleware)

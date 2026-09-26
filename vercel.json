@@ -6,7 +6,7 @@
   "functions": {
     "api/index.py": {
       "runtime": "@vercel/python@14.2.1",
-      "includeFiles": "backend/app/**/*.py",
+      "includeFiles": "backend/app/**",
       "maxDuration": 30
     }
   },
