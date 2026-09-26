@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Star,
   Upload,
+  X,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
@@ -96,12 +97,26 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
       <aside
         aria-label="Sidebar"
         className={
+          // Mobile: a self-contained off-canvas drawer that slides in and
+          // scrolls on its own, so it can never trap the page behind it.
+          // Desktop (lg+): unchanged sticky column.
           open
-            ? 'relative z-30 w-full shrink-0 overflow-y-auto border-b border-jv-border bg-white lg:sticky lg:top-16 lg:h-[calc(100vh-4rem)] lg:w-64 lg:border-b-0 lg:border-r'
-            : 'hidden w-full shrink-0 overflow-y-auto border-b border-jv-border bg-white lg:block lg:sticky lg:top-16 lg:h-[calc(100vh-4rem)] lg:w-64 lg:border-b-0 lg:border-r'
+            ? 'fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] translate-x-0 flex-col overflow-y-auto overscroll-contain border-r border-jv-border bg-white shadow-xl transition-transform duration-200 motion-reduce:transition-none lg:static lg:z-30 lg:w-64 lg:max-w-none lg:translate-x-0 lg:shadow-none lg:sticky lg:top-16 lg:h-[calc(100vh-4rem)]'
+            : 'fixed inset-y-0 left-0 z-40 hidden w-72 max-w-[85vw] -translate-x-full overflow-y-auto overscroll-contain border-r border-jv-border bg-white transition-transform duration-200 motion-reduce:transition-none lg:block lg:static lg:z-30 lg:w-64 lg:max-w-none lg:translate-x-0 lg:shadow-none lg:sticky lg:top-16 lg:h-[calc(100vh-4rem)]'
         }
       >
         <div className="flex flex-col gap-6 p-4">
+          <div className="flex items-center justify-between lg:hidden">
+            <span className="text-sm font-bold uppercase tracking-wider text-jv-muted">Menu</span>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close menu"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-jv-border text-lg text-jv-muted transition-colors hover:bg-slate-50 hover:text-jv-navy"
+            >
+              <X className="h-5 w-5" aria-hidden />
+            </button>
+          </div>
           <nav aria-label="Main" className="space-y-1">
             {SIDEBAR_MAIN.map((item) => {
               const Icon = ICONS[item.icon]
