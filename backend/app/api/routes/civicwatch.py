@@ -18,12 +18,14 @@ response target (sla_exceeded) is a UX state, never a legal claim.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select, update
 
@@ -33,8 +35,27 @@ from app.api.routes.auth import get_current_user, require_roles
 from app.services.audit import record_audit
 
 router = APIRouter(prefix="/api/civicwatch", tags=["civicwatch"])
+uploads_router = APIRouter(prefix="/api/uploads", tags=["uploads"])
+logger = logging.getLogger("janverify.civicwatch")
 
 RESOLVED_STATES = {"MARKED_FIXED", "CITIZEN_VERIFIED", "RESOLVED", "CLOSED"}
+
+
+@uploads_router.get("/civicwatch/db/{asset_id}")
+def civic_upload_asset(asset_id: int, db=Depends(get_session)):
+    """Serve a citizen photo stored in the database."""
+    uploads = T.get("civic_uploads")
+    if uploads is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    row = db.execute(
+        select(uploads.c.content_type, uploads.c.data, uploads.c.filename).where(
+            uploads.c.id == asset_id
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return Response(content=row.data, media_type=row.content_type)
+
 
 # Representative Wikimedia Commons images used when an action is not attached
 # to a real photo. Always labelled, never evidence of a specific incident.
@@ -131,11 +152,12 @@ def _resolve_category(raw: str | None) -> tuple[str, str]:
     return CITIZEN_CATEGORIES[key]
 
 
-def _store_citizen_photo(upload) -> tuple[str, str, int]:
+def _store_citizen_photo(upload, db) -> tuple[str, str, int]:
     """Persist an uploaded citizen photo under a generated, sanitized name.
 
-    Uses Vercel Blob when BLOB_READ_WRITE_TOKEN is set (serverless has no
-    persistent disk), otherwise the local uploads directory.
+    Storage backends, in order of preference: Vercel Blob (when
+    BLOB_READ_WRITE_TOKEN is set), the database, then the local disk. This keeps
+    photos permanent on serverless hosts that have no writable filesystem.
     """
     content_type = (upload.content_type or "").split(";")[0].strip().lower()
     if content_type not in ALLOWED_IMAGE_TYPES:
@@ -167,6 +189,10 @@ def _store_citizen_photo(upload) -> tuple[str, str, int]:
         )
         return result.url, digest, len(data)
 
+    asset_id = _store_photo_in_database(db, digest, filename, content_type, data)
+    if asset_id is not None:
+        return f"{CIVIC_UPLOAD_URL_PREFIX}/db/{asset_id}", digest, len(data)
+
     try:
         CIVIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         dest = CIVIC_UPLOAD_DIR / filename
@@ -178,6 +204,39 @@ def _store_citizen_photo(upload) -> tuple[str, str, int]:
             detail=f"Photo storage is not available on this deployment ({exc}).",
         ) from exc
     return f"{CIVIC_UPLOAD_URL_PREFIX}/{filename}", digest, len(data)
+
+
+def _store_photo_in_database(db, digest: str, filename: str, content_type: str, data: bytes):
+    """Store the photo bytes in civic_uploads; returns the row id or None."""
+    try:
+        uploads = T["civic_uploads"]
+        existing = db.execute(
+            select(uploads.c.id).where(uploads.c.sha256 == digest)
+        ).scalar_one_or_none()
+        if existing is not None:
+            return existing
+        result = db.execute(
+            uploads.insert().values(
+                sha256=digest,
+                filename=filename,
+                content_type=content_type,
+                byte_length=len(data),
+                data=data,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+        return result.inserted_primary_key[0]
+    except HTTPException:
+        raise
+    except Exception as exc:  # database unavailable -> caller falls back
+        logger.warning("database photo storage unavailable: %s", exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
+
 
 
 class CreateIssueRequest(BaseModel):
@@ -431,7 +490,7 @@ async def create_issue(
         upload = form.get("photo") or form.get("image")
         if upload is None or not getattr(upload, "filename", None):
             raise HTTPException(status_code=422, detail="A photo is required to report an issue.")
-        photo_url, _digest, _size = _store_citizen_photo(upload)
+        photo_url, _digest, _size = _store_citizen_photo(upload, db)
         photo_caption = "Citizen-submitted photo."
         if location:
             head, _, tail = location.partition(",")

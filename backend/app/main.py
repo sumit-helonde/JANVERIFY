@@ -16,6 +16,7 @@ from app.api.routes.submissions import router as submissions_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.admin import router as admin_router
 from app.api.routes.civicwatch import router as civicwatch_router
+from app.api.routes.civicwatch import uploads_router as civic_uploads_router
 from app.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import get_logger
@@ -59,6 +60,7 @@ app.include_router(submissions_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(civicwatch_router)
+app.include_router(civic_uploads_router)
 
 register_exception_handlers(app)
 
