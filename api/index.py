@@ -45,12 +45,19 @@ os.environ.setdefault("ENVIRONMENT", "production")
 
 from starlette.types import ASGIApp, Receive, Scope, Send  # noqa: E402
 
+# Declared at the top level so the Vercel Python builder can statically detect
+# the ASGI app, then replaced by the real application when the import succeeds.
+app: ASGIApp | None = None
+_import_error: str | None = None
+
 try:
     from app.main import app  # noqa: E402
 except Exception:  # pragma: no cover - surfaced as a readable 500 on Vercel
     import traceback
 
     _import_error = traceback.format_exc()
+
+if app is None:  # pragma: no cover - only when the backend cannot be imported
 
     class _ImportErrorApp:
         """Reports why the API could not start instead of failing silently."""
