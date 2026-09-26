@@ -80,10 +80,15 @@ if not os.environ.get("BLOB_READ_WRITE_TOKEN", "").strip():
         # Same directory under the API prefix so the dev proxy serves photos unchanged.
         app.mount("/api/uploads", StaticFiles(directory=UPLOADS_DIR), name="api_uploads")
 
-# Serve the built React app from the same origin when frontend/dist exists, so a
-# single server can host the whole product (API + UI) without a second process.
-FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-if FRONTEND_DIST.is_dir():
+# Serve the built React app from the same origin when a build output exists, so
+# a single server hosts the whole product (API + UI). On Vercel the build copies
+# the output into api/static so it ships inside the function bundle.
+_FRONTEND_DIST_CANDIDATES = (
+    Path(__file__).resolve().parents[2] / "api" / "static",   # Vercel function bundle
+    Path(__file__).resolve().parents[2] / "frontend" / "dist",  # local build
+)
+FRONTEND_DIST = next((p for p in _FRONTEND_DIST_CANDIDATES if p.is_dir()), None)
+if FRONTEND_DIST is not None:
     assets_dir = FRONTEND_DIST / "assets"
     if assets_dir.is_dir():
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")

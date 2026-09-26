@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "JANVERIFY monorepo: React frontend (frontend/) + FastAPI backend (backend/, served as the Vercel /api function)",
   "scripts": {
-    "build": "npm --prefix frontend run build",
+    "build": "npm --prefix frontend run build && node scripts/copy-spa.mjs",
     "dev:frontend": "npm --prefix frontend run dev"
   }
 }
