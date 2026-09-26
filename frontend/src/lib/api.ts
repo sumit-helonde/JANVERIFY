@@ -15,6 +15,26 @@ export interface HealthResponse {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
+  // One retry: a proxy/CDN can occasionally answer with an HTML page instead
+  // of the API response, and a second attempt usually succeeds.
+  try {
+    return await requestJSON<T>(path)
+  } catch (firstError) {
+    if (firstError instanceof Error && firstError.message.includes('non-JSON')) {
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      try {
+        return await requestJSON<T>(path)
+      } catch (retryError) {
+        throw new Error(
+          `${(retryError as Error).message} | full URL: ${API_BASE_URL}${path} | origin: ${window.location.origin}`,
+        )
+      }
+    }
+    throw firstError
+  }
+}
+
+async function requestJSON<T>(path: string): Promise<T> {
   const token = tokenFromStorage()
   const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
