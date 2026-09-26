@@ -11,10 +11,35 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-BACKEND = ROOT / "backend"
-if str(BACKEND) not in sys.path:
-    sys.path.insert(0, str(BACKEND))
+HERE = Path(__file__).resolve().parent
+
+# The bundle layout differs between local runs, the Vercel build and the
+# function bundle, so locate the directory that contains the FastAPI package.
+_CANDIDATE_ROOTS = (
+    HERE.parent / "backend",   # <repo>/api/index.py  +  <repo>/backend/app
+    HERE / "backend",
+    HERE.parent,               # backend/app flattened next to index.py
+    HERE,
+    Path.cwd() / "backend",
+    Path.cwd(),
+)
+
+
+def _locate_backend() -> Path | None:
+    for root in _CANDIDATE_ROOTS:
+        try:
+            if (root / "app" / "main.py").is_file():
+                return root
+        except OSError:
+            continue
+    return None
+
+
+_backend = _locate_backend()
+if _backend is not None and str(_backend) not in sys.path:
+    sys.path.insert(0, str(_backend))
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
 
 os.environ.setdefault("ENVIRONMENT", "production")
 
