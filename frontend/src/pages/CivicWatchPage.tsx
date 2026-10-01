@@ -13,9 +13,11 @@ import {
 Map as MapIcon,
   MapPin,
   Megaphone,
-  MessageSquare,
+MessageSquare,
+  PencilLine,
   ShieldCheck,
   ThumbsUp,
+  Trash2,
   TriangleAlert,
   Wrench,
   X,
@@ -44,8 +46,11 @@ import {
   confirmCivicIssue,
   submitCivicIssueWithPhoto,
   fetchCivicIssues,
+  fetchCivicIssue,
   transitionCivicIssue,
   verifyCivicIssue,
+  editCivicIssue,
+  deleteCivicIssue,
   type CivicIssueDto,
 } from '../lib/api'
 import { roleShort } from '../lib/roles'
@@ -79,6 +84,8 @@ interface PostCardProps {
   onTransition: (id: string, action: 'action' | 'progress' | 'mark-fixed') => void
   onVerify: (id: string, verdict: 'FIXED' | 'PARTIALLY_FIXED' | 'STILL_EXISTS') => void
   onOpenComments: () => void
+  onEdit: (id: string) => void
+  onDelete: (id: string) => void
   commentCount: number
   busy: boolean
 }
@@ -90,6 +97,8 @@ function PostCard({
   onTransition,
   onVerify,
   onOpenComments,
+  onEdit,
+  onDelete,
   commentCount,
   busy,
 }: PostCardProps) {
@@ -455,10 +464,38 @@ function PostCard({
           <p className="mt-0.5 italic text-jv-muted">“{issue.trustmesh.summary}”</p>
         </div>
 
-        <p className="mt-3 text-[10px] text-jv-muted">
+<p className="mt-3 text-[10px] text-jv-muted">
           Demo issue · {issue.mainImage.attribution} / {issue.mainImage.license} (Wikimedia Commons) —
           representative photo, not evidence of a specific Nagpur incident.
         </p>
+
+        {(caps.can_edit || caps.can_delete) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-jv-border bg-slate-50 px-3 py-2.5">
+            <p className="mr-auto text-[11px] font-semibold uppercase tracking-wider text-jv-muted">
+              Janverify Neutral Team
+            </p>
+            {caps.can_edit && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onEdit(issue.id)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-jv-border bg-white px-3 py-1.5 text-xs font-semibold text-jv-navy hover:bg-jv-navy/5 disabled:opacity-50"
+              >
+                <PencilLine className="h-3.5 w-3.5" aria-hidden /> Edit
+              </button>
+            )}
+            {caps.can_delete && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onDelete(issue.id)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </article>
   )
@@ -1085,6 +1122,14 @@ export default function CivicWatchPage() {
     status?: string
   } | null>(null)
   const [addedComments, setAddedComments] = useState<Record<string, CivicComment[]>>({})
+  const [editing, setEditing] = useState<{
+    id: string
+    title: string
+    description: string
+    category: string
+    ward: string
+    locality: string
+  } | null>(null)
   const commentTriggerRef = useRef<HTMLButtonElement | null>(null)
   const selectedRef = useRef<HTMLDivElement | null>(null)
 
@@ -1181,8 +1226,76 @@ export default function CivicWatchPage() {
       setIssues((prev) => prev.map((i) => (i.id === updated.issue_reference ? civicToView(updated) : i)))
       setDtos((prev) => new Map(prev).set(id, updated.capabilities))
       flash(verdict === 'STILL_EXISTS' ? 'Dispute recorded — the records now conflict.' : 'Verification recorded.')
-    } catch (err) {
+} catch (err) {
       flash(err instanceof Error ? err.message : 'Verification failed.')
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
+  async function openEdit(id: string) {
+    if (busyRef) return
+    setBusyRef(id)
+    try {
+      const dto = await fetchCivicIssue(id)
+      setEditing({
+        id,
+        title: dto.title,
+        description: dto.description,
+        category: dto.category,
+        ward: dto.ward ?? '',
+        locality: dto.locality ?? '',
+      })
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Could not open the record.')
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
+  async function saveEdit() {
+    if (!editing) return
+    setBusyRef(editing.id)
+    try {
+      const updated = await editCivicIssue(editing.id, {
+        title: editing.title.trim(),
+        description: editing.description.trim(),
+        category: editing.category,
+        ward: editing.ward.trim() || null,
+        locality: editing.locality.trim() || null,
+      })
+      setIssues((prev) => prev.map((i) => (i.id === updated.issue_reference ? civicToView(updated) : i)))
+      setDtos((prev) => new Map(prev).set(editing.id, updated.capabilities))
+      setEditing(null)
+      flash('Record updated and logged in the audit trail.')
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Update failed.')
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
+  async function removeIssue(id: string) {
+    const issue = issues.find((i) => i.id === id)
+    if (!issue) return
+    const note = window.prompt(
+      `Delete ${issue.id}? This removes the record permanently.\n\nReason (kept in the audit trail):`,
+      '',
+    )
+    if (note === null) return
+    setBusyRef(id)
+    try {
+      await deleteCivicIssue(id, note)
+      setIssues((prev) => prev.filter((i) => i.id !== id))
+      setDtos((prev) => {
+        const next = new Map(prev)
+        next.delete(id)
+        return next
+      })
+      setEditing(null)
+      flash(`${issue.id} deleted — the removal stays in the audit trail.`)
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Delete failed.')
     } finally {
       setBusyRef(null)
     }
@@ -1398,9 +1511,11 @@ export default function CivicWatchPage() {
                   issue={issue}
                   caps={dtos.get(issue.id) ?? DEMO_CAPS}
                   busy={busyRef === issue.id}
-                  onConfirm={confirmIssue}
+onConfirm={confirmIssue}
                   onTransition={runTransition}
                   onVerify={runVerify}
+                  onEdit={openEdit}
+                  onDelete={removeIssue}
                   commentCount={threadFor(issue.id, issue.categoryKey).length}
                   onOpenComments={() =>
                     openComments({
@@ -1539,7 +1654,121 @@ export default function CivicWatchPage() {
           imageUrl={commentIssue.imageUrl}
           status={commentIssue.status}
         />
-      ) : null}
+) : null}
+
+      {editing && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-jv-navy/50 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Edit ${editing.id}`}
+        >
+          <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-jv-navy">Edit {editing.id}</h2>
+                <p className="mt-0.5 text-xs text-jv-muted">
+                  Janverify Neutral Team · every change is written to the audit trail.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                aria-label="Close edit form"
+                className="rounded-lg p-1.5 text-jv-muted hover:bg-slate-100 hover:text-jv-navy"
+              >
+                <X className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <label className="block">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-jv-muted">
+                  Title
+                </span>
+                <input
+                  value={editing.title}
+                  onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-jv-border px-3 py-2 text-sm text-jv-navy"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-jv-muted">
+                  Description
+                </span>
+                <textarea
+                  value={editing.description}
+                  onChange={(e) => setEditing({ ...editing, description: e.target.value })}
+                  rows={4}
+                  className="mt-1 w-full rounded-lg border border-jv-border px-3 py-2 text-sm text-jv-navy"
+                />
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-jv-muted">
+                    Category
+                  </span>
+                  <select
+                    value={editing.category}
+                    onChange={(e) => setEditing({ ...editing, category: e.target.value })}
+                    className="mt-1 w-full rounded-lg border border-jv-border px-3 py-2 text-sm text-jv-navy"
+                  >
+                    {CIVIC_FILTERS.filter((f) => f.key !== 'all' && f.key !== 'nearby').map((f) => (
+                      <option key={f.key} value={f.label}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-jv-muted">
+                    Ward
+                  </span>
+                  <input
+                    value={editing.ward}
+                    onChange={(e) => setEditing({ ...editing, ward: e.target.value })}
+                    placeholder="e.g. Ward 24"
+                    className="mt-1 w-full rounded-lg border border-jv-border px-3 py-2 text-sm text-jv-navy"
+                  />
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-jv-muted">
+                  Locality
+                </span>
+                <input
+                  value={editing.locality}
+                  onChange={(e) => setEditing({ ...editing, locality: e.target.value })}
+                  placeholder="e.g. Dharampeth"
+                  className="mt-1 w-full rounded-lg border border-jv-border px-3 py-2 text-sm text-jv-navy"
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                className="rounded-lg border border-jv-border px-4 py-2 text-sm font-semibold text-jv-navy hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busyRef === editing.id}
+                onClick={saveEdit}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-jv-navy px-4 py-2 text-sm font-semibold text-white hover:bg-jv-navy/90 disabled:opacity-50"
+              >
+                <PencilLine className="h-4 w-4" aria-hidden /> Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1550,6 +1779,8 @@ const DEMO_CAPS = {
   can_act: false,
   can_verify: true,
   can_review: false,
+  can_edit: false,
+  can_delete: false,
   can_view: true,
 }
 

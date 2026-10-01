@@ -27,7 +27,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from app.core.db import get_session
 from app.api.routes._db import T
@@ -269,6 +269,27 @@ class ReviewBody(BaseModel):
     note: str = ""
 
 
+class EditIssueRequest(BaseModel):
+    """Neutral-team correction payload. Every field is optional."""
+
+    title: str | None = None
+    description: str | None = None
+    category: str | None = None
+    category_key: str | None = None
+    ward: str | None = None
+    locality: str | None = None
+    city: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    main_image_url: str | None = None
+    main_image_caption: str | None = None
+    note: str = ""
+
+
+class DeleteIssueRequest(BaseModel):
+    note: str = ""
+
+
 def _location(row) -> str:
     if row["ward"]:
         return f"{row['ward']}, {row['city']}"
@@ -287,12 +308,15 @@ def _default_image(category_key: str):
 
 def _capabilities(role: str) -> dict:
     role = str(role).lower()
+    neutral_team = role in {"admin", "reviewer"}
     return {
         "can_create": role in {"citizen", "admin"},
         "can_confirm": role in {"citizen", "admin"},
         "can_act": role in {"inspector", "admin"},
         "can_verify": role in {"citizen", "admin"},
         "can_review": role == "admin",
+        "can_edit": neutral_team,
+        "can_delete": neutral_team,
         "can_view": True,
     }
 
@@ -777,6 +801,135 @@ async def review_issue(
     )
     updated = _get_issue(db, issue_id)
     return _issue_out(updated, user["role"])
+
+
+@router.patch("/issues/{issue_id}")
+async def edit_issue(
+    issue_id: str,
+    body: EditIssueRequest,
+    user=Depends(require_roles("reviewer")),
+    db=Depends(get_session),
+):
+    """Correct a CivicWatch record. JANVERIFY neutral team only.
+
+    Admins and reviewers may amend the submitted content (title, description,
+    category, location, GPS, image). The lifecycle status and TRUSTMESH state
+    are deliberately *not* editable here: those stay on the review/verify
+    endpoints so every state change keeps its own audited transition.
+    """
+    row = _get_issue(db, issue_id)
+    changes: dict = {}
+
+    if body.title is not None:
+        title = _strip(body.title)
+        if not 5 <= len(title) <= 200:
+            raise HTTPException(status_code=422, detail="title must be 5-200 characters.")
+        changes["title"] = title
+    if body.description is not None:
+        description = _strip(body.description)
+        if not 10 <= len(description) <= 2000:
+            raise HTTPException(status_code=422, detail="description must be 10-2000 characters.")
+        changes["description"] = description
+    if body.category is not None or body.category_key is not None:
+        label, key = _resolve_category(body.category or body.category_key)
+        changes["category"] = label
+        changes["category_key"] = key
+    for name, limit in (("ward", 64), ("locality", 200), ("city", 64)):
+        value = getattr(body, name)
+        if value is None:
+            continue
+        text = _strip(value)
+        if name == "city":
+            text = text or "Nagpur"
+        if len(text) > limit:
+            raise HTTPException(status_code=422, detail=f"{name} must be {limit} characters or fewer.")
+        changes[name] = text or None
+    for name, low, high in (("latitude", -90, 90), ("longitude", -180, 180)):
+        value = getattr(body, name)
+        if value is None:
+            continue
+        if not low <= float(value) <= high:
+            raise HTTPException(status_code=422, detail="Invalid GPS coordinates.")
+        changes[name] = float(value)
+    for name, limit in (("main_image_url", 2000), ("main_image_caption", 500)):
+        value = getattr(body, name)
+        if value is None:
+            continue
+        text = _strip(value)
+        if len(text) > limit:
+            raise HTTPException(status_code=422, detail=f"{name} must be {limit} characters or fewer.")
+        changes[name] = text or None
+
+    if not changes:
+        raise HTTPException(status_code=422, detail="No editable fields supplied.")
+
+    changed = [k for k, v in changes.items() if row[k] != v]
+    if not changed:
+        return _issue_out(row, user["role"])
+
+    changes["updated_at"] = datetime.now(timezone.utc)
+    db.execute(
+        update(T["civic_issues"])
+        .where(T["civic_issues"].c.id == row["id"])
+        .values(**changes)
+    )
+    db.commit()
+    _audit(
+        db, user, "update", row["id"],
+        {k: row[k] for k in changed},
+        {k: changes[k] for k in changed},
+        row["issue_reference"],
+    )
+    return _issue_out(_get_issue(db, row["id"]), user["role"])
+
+
+@router.delete("/issues/{issue_id}")
+async def delete_issue(
+    issue_id: str,
+    body: DeleteIssueRequest | None = None,
+    user=Depends(require_roles("reviewer")),
+    db=Depends(get_session),
+):
+    """Remove a CivicWatch record. JANVERIFY neutral team only.
+
+    The delete itself is written to the audit trail first so the removal stays
+    traceable after the row is gone.
+    """
+    row = _get_issue(db, issue_id)
+    reference = row["issue_reference"]
+    photo_url = row["main_image_url"]
+
+    _audit(
+        db, user, "delete", row["id"],
+        {
+            "issue_reference": reference,
+            "title": row["title"],
+            "status": row["status"],
+            "trust_state": row["trust_state"],
+            "main_image_url": photo_url,
+        },
+        {"deleted": True, "note": _strip(body.note if body else "")},
+        reference,
+    )
+
+    db.execute(delete(T["civic_issues"]).where(T["civic_issues"].c.id == row["id"]))
+    db.commit()
+
+    # Drop the stored photo too, but only when it belongs solely to this issue.
+    uploads = T.get("civic_uploads")
+    if uploads is not None and photo_url:
+        asset = None
+        marker = "/api/uploads/civicwatch/db/"
+        if marker in str(photo_url):
+            try:
+                asset = int(str(photo_url).split(marker)[-1].split("/")[0])
+            except ValueError:
+                asset = None
+        if asset is not None:
+            db.execute(delete(uploads).where(uploads.c.id == asset))
+            db.commit()
+
+    return {"deleted": True, "issue_reference": reference, "id": row["id"]}
 
 
 @router.get("/summary")

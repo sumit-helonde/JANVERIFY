@@ -1196,6 +1196,8 @@ export interface CivicIssueDto {
     can_act: boolean
     can_verify: boolean
     can_review: boolean
+    can_edit: boolean
+    can_delete: boolean
     can_view: boolean
   }
 }
@@ -1380,6 +1382,40 @@ export function reviewCivicIssue(
     method: 'POST',
     body: JSON.stringify({ decision, note }),
   })
+}
+
+/** JANVERIFY neutral team only. Amend the submitted content of a civic issue. */
+export interface CivicIssueEdit {
+  title?: string
+  description?: string
+  category?: string
+  category_key?: string
+  ward?: string | null
+  locality?: string | null
+  city?: string
+  latitude?: number
+  longitude?: number
+}
+
+export function editCivicIssue(
+  id: number | string,
+  patch: CivicIssueEdit,
+): Promise<CivicIssueDto> {
+  return send<CivicIssueDto>(`/civicwatch/issues/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+/** JANVERIFY neutral team only. Permanently remove a civic issue. */
+export function deleteCivicIssue(
+  id: number | string,
+  note = '',
+): Promise<{ deleted: boolean; issue_reference: string; id: number }> {
+  return send<{ deleted: boolean; issue_reference: string; id: number }>(
+    `/civicwatch/issues/${id}`,
+    { method: 'DELETE', body: JSON.stringify({ note }) },
+  )
 }
 
 // ---------------------------------------------------------------------------
